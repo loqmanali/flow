@@ -1,0 +1,154 @@
+# `flow flavor firebase`
+
+A non-interactive wrapper around `flutterfire configure` that runs once per
+Firebase project required by your strategy, then injects
+`Firebase.initializeApp` into your main file(s).
+
+## Synopsis
+
+```bash
+flow flavor firebase [--flavor <name>]
+```
+
+## Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--flavor <name>`, `-f` | _(all flavors)_ | Configure a single flavor instead of every flavor at once. |
+
+## Prerequisites
+
+- The `flutterfire` CLI installed and on `PATH`. Install with `dart pub
+  global activate flutterfire_cli`.
+- `firebase login` completed (or `FIREBASE_TOKEN` set in CI).
+- A `firebase` block in `.flow_flavor.json` listing your strategy + project
+  IDs.
+
+## Strategies
+
+The behavior depends on `firebase.strategy` in `.flow_flavor.json`:
+
+| Strategy | `use_suffix` | Calls flutterfire | Generated files |
+|---|---|---|---|
+| `shared_id_single_project` | `false` | once for the single project | `lib/firebase_options.dart` (one file, applied to all flavors) |
+| `unique_id_single_project` | `true` | once per registered app inside one project | `lib/firebase_options_<flavor>.dart` per flavor |
+| `unique_id_multi_project` | `true` | once per project | `lib/firebase_options_<flavor>.dart` per flavor |
+
+In all cases, `flow` then patches each `lib/main_<flavor>.dart` to
+include `await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)`.
+
+## Walkthrough — `unique_id_multi_project`
+
+```terminal
+$ flow flavor firebase
+✓ Loaded .flow_flavor.json: 3 flavors, strategy=unique_id_multi_project
+
+→ flutterfire configure --project=acme-app-dev \
+    --platforms=android,ios \
+    --android-package-name=com.acme.app.dev \
+    --ios-bundle-id=com.acme.app.dev \
+    --out=lib/firebase_options_dev.dart \
+    --yes
+✓ Wrote lib/firebase_options_dev.dart
+✓ Injected Firebase.initializeApp into lib/main_dev.dart
+
+→ flutterfire configure --project=acme-app-stage \
+    --platforms=android,ios \
+    --android-package-name=com.acme.app.stage \
+    --ios-bundle-id=com.acme.app.stage \
+    --out=lib/firebase_options_stage.dart \
+    --yes
+✓ Wrote lib/firebase_options_stage.dart
+✓ Injected Firebase.initializeApp into lib/main_stage.dart
+
+→ flutterfire configure --project=acme-app-production \
+    --platforms=android,ios \
+    --android-package-name=com.acme.app \
+    --ios-bundle-id=com.acme.app \
+    --out=lib/firebase_options_production.dart \
+    --yes
+✓ Wrote lib/firebase_options_production.dart
+✓ Injected Firebase.initializeApp into lib/main_production.dart
+
+Done. Run `flow flavor run dev` to verify Firebase initializes.
+```
+
+## Walkthrough — single flavor
+
+```terminal
+$ flow flavor firebase --flavor staging
+✓ Configuring only "staging"...
+→ flutterfire configure …
+✓ Wrote lib/firebase_options_staging.dart
+✓ Injected Firebase.initializeApp into lib/main_staging.dart
+```
+
+## Walkthrough — config missing
+
+If `.flow_flavor.json` doesn't have a `firebase` block yet, you'll be
+prompted to add one:
+
+```terminal
+$ flow flavor firebase
+🔥 No Firebase configuration found in .flow_flavor.json. Would you like to set it up now?
+? Strategy: › unique_id_multi_project / unique_id_single_project / shared_id_single_project
+? Firebase project ID for "dev": › acme-app-dev
+? Firebase project ID for "stage": › acme-app-stage
+? Firebase project ID for "production": › acme-app-production
+✓ Firebase configuration saved to .flow_flavor.json
+→ flutterfire configure …
+```
+
+## Idempotence
+
+`flow` skips the `Firebase.initializeApp` injection when it's already present
+in a file. Re-running the command after editing config:
+
+```terminal
+$ flow flavor firebase
+…
+✓ Wrote lib/firebase_options_dev.dart (replaced)
+- Skipped lib/main_dev.dart (Firebase.initializeApp already present)
+…
+```
+
+## Suffix rules
+
+- The production flavor **always** uses the base bundle/package ID.
+- Non-production flavors append `.<flavor>` to the base ID when
+  `use_suffix: true`.
+
+So with `use_suffix: true` and base `com.acme.app`, the bundle IDs passed
+to `flutterfire configure` are:
+
+| Flavor | Android `application_id` | iOS `bundle_id` |
+|---|---|---|
+| dev | com.acme.app.dev | com.acme.app.dev |
+| stage | com.acme.app.stage | com.acme.app.stage |
+| production | com.acme.app | com.acme.app |
+
+## Common errors
+
+```terminal
+❌ flow: flutterfire CLI not found
+   Install with: dart pub global activate flutterfire_cli
+```
+
+```terminal
+❌ flow: project not initialized
+   Run `flow flavor init` before configuring Firebase.
+```
+
+```terminal
+flutterfire: Firebase project "acme-app-dev" not found.
+   Did you mean: acme-app-development?
+```
+This comes from `flutterfire` directly. Fix the project ID in
+`.flow_flavor.json` and re-run.
+
+:::tip Multi-platform flavors
+By default `flow` passes `--platforms=android,ios`. If you also build for
+web, macOS, or Windows, edit `.flow_flavor.json` to add the platforms (the
+generated `firebase_options_*.dart` is regenerated by `flutterfire`, so
+re-run the command after).
+:::

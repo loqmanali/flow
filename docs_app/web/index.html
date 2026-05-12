@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Documentation site for the flow CLI">
+
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="flow docs">
+  <meta name="theme-color" content="#0b0b0d">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>flow • docs</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #0b0b0d;
+      color: #e7e7ea;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    @media (prefers-color-scheme: light) {
+      html, body { background: #ffffff; color: #18181b; }
+      #flow-loader .ring { border-color: rgba(0, 0, 0, 0.08); border-top-color: #18181b; }
+      #flow-loader .brand-dot { background: #18181b; }
+      #flow-loader .subtitle { color: #71717a; }
+    }
+
+    #flow-loader {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 22px;
+      background: inherit;
+      z-index: 9999;
+      opacity: 1;
+      transition: opacity 320ms ease-out;
+    }
+
+    #flow-loader.flow-loader--hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #flow-loader .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    #flow-loader .brand-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #e7e7ea;
+      animation: flow-pulse 1.4s ease-in-out infinite;
+    }
+
+    #flow-loader .ring {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.12);
+      border-top-color: #e7e7ea;
+      animation: flow-spin 0.9s linear infinite;
+    }
+
+    #flow-loader .subtitle {
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #71717a;
+    }
+
+    @keyframes flow-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes flow-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: 0.45; transform: scale(0.85); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #flow-loader .ring,
+      #flow-loader .brand-dot { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="flow-loader" aria-live="polite" aria-busy="true">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span>flow • docs</span>
+    </div>
+    <div class="ring" role="progressbar" aria-label="Loading"></div>
+    <div class="subtitle">Loading documentation</div>
+  </div>
+
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var loader = document.getElementById('flow-loader');
+      if (!loader) return;
+      loader.classList.add('flow-loader--hidden');
+      setTimeout(function () {
+        if (loader.parentNode) loader.parentNode.removeChild(loader);
+      }, 360);
+    });
+  </script>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
