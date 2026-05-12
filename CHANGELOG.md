@@ -1,3 +1,11 @@
+## 0.1.1
+
+### Documentation
+- Update installation instructions in README and docs to use `--source git` activation (`dart pub global activate --source git https://github.com/loqmanali/flow.git`) instead of the bare `dart pub global activate flow` form, which resolves to an unrelated legacy package on pub.dev.
+- Add local path activation instructions (`--source path`) for development and fork testing.
+- Add PATH troubleshooting note (`~/.pub-cache/bin`).
+- Add warning callout in docs_app explaining the pub.dev name conflict.
+
 ## 0.1.0
 
 Initial release.

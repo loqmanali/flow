@@ -15,11 +15,30 @@ All of it lives behind a single command: `flow`.
 
 ## Install
 
+Install the latest from GitHub:
+
 ```bash
-dart pub global activate flow
+dart pub global activate --source git https://github.com/loqmanali/flow.git
 ```
 
-After activation, the `flow` command is available globally on your `PATH`.
+Or from a local checkout (handy while developing or testing a fork):
+
+```bash
+dart pub global activate --source path /path/to/flow
+```
+
+After activation, the `flow` command is available globally on your `PATH`
+(usually `~/.pub-cache/bin`). If `flow` isn't recognized, add that directory
+to your shell's `PATH`:
+
+```bash
+export PATH="$PATH":"$HOME/.pub-cache/bin"
+```
+
+> **Note:** The bare `dart pub global activate flow` form is reserved for a
+> future pub.dev release. The name `flow` on pub.dev currently points to an
+> unrelated legacy package, so install from git or path until this CLI is
+> published under its own name.
 
 ## At a glance
 

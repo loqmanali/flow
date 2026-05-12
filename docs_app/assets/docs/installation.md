@@ -24,14 +24,21 @@ Fastlane configuration for you, so you don't need to author `Fastfile`s or
 
 ## Global activation
 
-The recommended path for everyday use:
+The recommended path for everyday use is to activate from GitHub:
 
 ```bash
-dart pub global activate flow
+dart pub global activate --source git https://github.com/loqmanali/flow.git
 ```
 
 After activation, the `flow` command is available globally. Run `flow --help`
 to confirm.
+
+:::warning About `dart pub global activate flow`
+The bare form `dart pub global activate flow` resolves to an unrelated legacy
+package on pub.dev that does not support null safety and will fail to install
+on any modern Dart SDK. Until this CLI is published to pub.dev under its own
+name, install via `--source git` (above) or `--source path` (below).
+:::
 
 ### Confirming the install
 
@@ -75,10 +82,10 @@ This creates a global `flow` command linked to your local source tree. Dart
 code changes are picked up immediately on the next invocation; pubspec changes
 require re-running the activate command.
 
-To revert to the published version:
+To revert to the GitHub version:
 
 ```bash
-dart pub global activate flow
+dart pub global activate --source git https://github.com/loqmanali/flow.git
 ```
 
 ## As a dev dependency
@@ -113,7 +120,7 @@ version, which is what you want when CI and humans both call the CLI.
 For a global install, re-run the activate command:
 
 ```bash
-dart pub global activate flow
+dart pub global activate --source git https://github.com/loqmanali/flow.git
 ```
 
 For a dev-dependency install, bump the `ref` in your `pubspec.yaml` and run
