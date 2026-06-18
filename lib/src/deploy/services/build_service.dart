@@ -81,6 +81,8 @@ class BuildService {
   }
 
   static Future<void> buildAndroidApk({String buildFlavor = ''}) async {
+    if (await _runProjectFlavorBuild('apk', buildFlavor)) return;
+
     final arguments = [
       'build',
       'apk',
@@ -91,10 +93,13 @@ class BuildService {
       'flutter',
       arguments: arguments,
       description: 'Building Android APK',
+      environment: _flavorEnvironment(buildFlavor),
     );
   }
 
   static Future<void> buildAndroidAppBundle({String buildFlavor = ''}) async {
+    if (await _runProjectFlavorBuild('appbundle', buildFlavor)) return;
+
     final arguments = [
       'build',
       'appbundle',
@@ -107,10 +112,13 @@ class BuildService {
       'flutter',
       arguments: arguments,
       description: 'Building Android AppBundle',
+      environment: _flavorEnvironment(buildFlavor),
     );
   }
 
   static Future<void> buildIOS({String buildFlavor = ''}) async {
+    if (await _runProjectFlavorBuild('ipa', buildFlavor)) return;
+
     await ProcessRunner.runCommand(
       'pod',
       arguments: ['install'],
@@ -129,15 +137,84 @@ class BuildService {
       'flutter',
       arguments: arguments,
       description: 'Building iOS IPA',
+      environment: _flavorEnvironment(buildFlavor),
     );
+  }
+
+  /// Uses the app's guarded flavor build when available.
+  ///
+  /// Project wrappers commonly validate env files, select native Firebase
+  /// configuration, and enforce production safety checks. Bypassing them can
+  /// produce an installable artifact that fails during startup.
+  static Future<bool> _runProjectFlavorBuild(
+    String target,
+    String buildFlavor,
+  ) async {
+    if (buildFlavor.isEmpty || !File('${Directory.current.path}/tool/flavor.dart').existsSync()) {
+      return false;
+    }
+
+    await ProcessRunner.runCommand(
+      'dart',
+      arguments: [
+        'run',
+        'tool/flavor.dart',
+        'build',
+        target,
+        buildFlavor,
+      ],
+      description: 'Building $buildFlavor $target with project flavor guard',
+    );
+    return true;
   }
 
   static List<String> _flavorBuildArguments(String buildFlavor) {
     final arguments = <String>[];
     if (buildFlavor.isNotEmpty) {
-      arguments.addAll(['--flavor', buildFlavor]);
+      arguments.addAll([
+        '--flavor',
+        buildFlavor,
+        '--target',
+        'lib/main_$buildFlavor.dart',
+      ]);
     }
+    arguments.addAll(_dartDefineArguments(buildFlavor));
     return arguments;
+  }
+
+  /// Injects the flavor's compile-time configuration via
+  /// `--dart-define-from-file=.env.<flavor>` when that file exists at the
+  /// project root.
+  ///
+  /// Apps commonly read required config (API URLs, keys, the build env marker)
+  /// through `String.fromEnvironment`, which is empty unless the defines are
+  /// passed at build time. Without this, a `flow`-built release compiles and
+  /// distributes fine but crashes on launch (stuck on the native splash) the
+  /// moment it validates its missing env. Mirrors how a project's own flavor
+  /// runner passes the defines. No file → no args, so this is safe for projects
+  /// that don't use dart-define files.
+  static List<String> _dartDefineArguments(String buildFlavor) {
+    if (buildFlavor.isEmpty) return const [];
+    final envFile = File('${Directory.current.path}/.env.$buildFlavor');
+    if (!envFile.existsSync()) return const [];
+    return ['--dart-define-from-file=.env.$buildFlavor'];
+  }
+
+  /// Extra environment variables exported to the native build so projects that
+  /// gate builds behind a flavor guard (a Gradle/Xcode script that aborts unless
+  /// it sees the expected flavor) succeed when invoked through `flow`.
+  ///
+  /// `FLOW_BUILD_FLAVOR` is the generic, tool-agnostic name guards should prefer.
+  /// `SAMNAN_BUILD_FLAVOR` is kept for this project's existing guard. Anything
+  /// already set in the caller's environment still wins for other variables —
+  /// these only add the flavor signal. A guard that doesn't read them is
+  /// unaffected, so this is safe for any project.
+  static Map<String, String> _flavorEnvironment(String buildFlavor) {
+    if (buildFlavor.isEmpty) return const {};
+    return {
+      'FLOW_BUILD_FLAVOR': buildFlavor,
+      'SAMNAN_BUILD_FLAVOR': buildFlavor,
+    };
   }
 
   static Future<void> _cleanupLegacyFlutterAndroidArtifacts() async {
