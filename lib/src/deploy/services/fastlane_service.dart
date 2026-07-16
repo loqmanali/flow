@@ -292,6 +292,10 @@ class FastlaneService {
           _optionalString(resolvedAndroidConfig['package_name']) ?? await Utils.androidPackageName;
       final aabPath = Utils.androidAabPath(flavor: buildFlavor);
       final mappingPath = Utils.androidMappingPath(flavor: buildFlavor);
+      // Play Console track to publish to. Defaults to 'production' so existing
+      // configs behave exactly as before; set android.track to 'internal',
+      // 'alpha', or 'beta' to target a testing track instead.
+      final track = _optionalString(resolvedAndroidConfig['track']) ?? 'production';
 
       if (jsonKeyPath?.isEmpty ?? true) {
         throw Exception('Missing json_key_path in .flow_deploy.json');
@@ -303,7 +307,8 @@ class FastlaneService {
           .replaceAll('%json_key_path%', jsonKeyPath!)
           .replaceAll('%package_name%', packageName)
           .replaceAll('%aab_path%', aabPath)
-          .replaceAll('%mapping_path%', mappingPath);
+          .replaceAll('%mapping_path%', mappingPath)
+          .replaceAll('%track%', track);
 
       final fastfile = File(Constants.androidFastfilePath);
       await fastfile.writeAsString(fastlaneContent);

@@ -19,6 +19,14 @@ class DeployConfig {
 
   String get buildTarget => _optionalString(build?['target']) ?? '';
 
+  /// Explicit path to the `--dart-define-from-file` config passed to every
+  /// build (for example `.env` or `.env.production`).
+  ///
+  /// Takes precedence over the `.env.<flavor>` convention, which only fits
+  /// projects that happen to name env files after their flavors. Empty means
+  /// "fall back to the convention".
+  String get dartDefineFromFile => _optionalString(build?['dart_define_from_file']) ?? '';
+
   Map<String, dynamic> get profiles {
     return _config['profiles'] as Map<String, dynamic>? ?? {};
   }

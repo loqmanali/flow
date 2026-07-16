@@ -1,3 +1,18 @@
+## 0.3.0
+
+### Fixed
+- **`build.target` was silently ignored.** The deploy command read the configured target, printed it in the run summary, then dropped it — every build hardcoded `lib/main_<flavor>.dart`. A project whose entrypoints don't follow that naming was told it was building one target while it built another. The configured target is now passed through, with the convention kept as the fallback.
+- **Flavored builds could ship with no compile-time config.** `--dart-define-from-file` was resolved only from the `.env.<flavor>` convention, and a missing file returned no arguments *silently*. A project that names env files differently (`.env` for a `dev` flavor) built and uploaded a release whose `String.fromEnvironment` values were all empty — an artifact that installs fine and is dead on launch. Resolution is now explicit-first and never fails quietly.
+
+### Added
+- **`build.dart_define_from_file`** — an explicit env file path per profile (`dev` → `.env`, `production` → `.env.production`), overriding the `.env.<flavor>` convention. A configured file that doesn't exist is now a hard error rather than a silently define-less build; when nothing is configured and no conventional file is found, a flavored build warns instead of passing silently.
+- **`android.track`** — the Play Console track to publish to (`internal`, `alpha`, `beta`, `production`). Previously `supply` was called with no track, so every Android upload went to `production` and testing tracks were unreachable. Defaults to `production`, so existing configs are unaffected.
+- Tests covering dart-define resolution and target selection (`test/deploy/build_arguments_test.dart`).
+
+### Changed
+- `BuildService.flavorBuildArguments` / `dartDefineArguments` are now public, so the CLI, Flow Studio, and tests can inspect what a deploy would pass without running a build.
+- `pubspec.yaml` version now matches the changelog — it still read `0.1.0` after the 0.2.0 entry, so `flow --version` under-reported the running build.
+
 ## 0.2.0
 
 ### Flow Studio (new)

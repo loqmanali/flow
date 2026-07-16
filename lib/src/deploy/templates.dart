@@ -449,6 +449,7 @@ platform :android do
     json_key: "%json_key_path%",
     aab: "%aab_path%",
     mapping: "%mapping_path%",
+    track: "%track%",
   )
   end
 end
