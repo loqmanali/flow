@@ -209,11 +209,15 @@ class BuildService {
   /// Resolves the flavor/target/dart-define arguments for a `flutter build`.
   /// Public so both the CLI and embedders (Flow Studio) can verify what a
   /// deploy would pass without running a build.
+  /// [projectDir] defaults to the current working directory — the project a
+  /// deploy runs against. It is injectable so callers (and tests) can resolve
+  /// against a directory without mutating process-wide `Directory.current`.
   static List<String> flavorBuildArguments(
     String buildFlavor,
     String buildTarget,
-    String dartDefineFromFile,
-  ) {
+    String dartDefineFromFile, {
+    String? projectDir,
+  }) {
     final arguments = <String>[];
     if (buildFlavor.isNotEmpty) {
       // An explicitly configured target wins; otherwise fall back to the
@@ -224,7 +228,9 @@ class BuildService {
     } else if (buildTarget.isNotEmpty) {
       arguments.addAll(['--target', buildTarget]);
     }
-    arguments.addAll(dartDefineArguments(buildFlavor, dartDefineFromFile));
+    arguments.addAll(
+      dartDefineArguments(buildFlavor, dartDefineFromFile, projectDir: projectDir),
+    );
     return arguments;
   }
 
@@ -243,9 +249,17 @@ class BuildService {
   ///  2. The `.env.<flavor>` convention, when that file exists.
   ///  3. Nothing — but warn when a flavor is set, because a flavored release
   ///     with no defines is far more likely a misconfiguration than intent.
-  static List<String> dartDefineArguments(String buildFlavor, String dartDefineFromFile) {
+  ///
+  /// [projectDir] defaults to the current working directory; see
+  /// [flavorBuildArguments].
+  static List<String> dartDefineArguments(
+    String buildFlavor,
+    String dartDefineFromFile, {
+    String? projectDir,
+  }) {
+    final root = projectDir ?? Directory.current.path;
     if (dartDefineFromFile.isNotEmpty) {
-      final configured = File('${Directory.current.path}/$dartDefineFromFile');
+      final configured = File('$root/$dartDefineFromFile');
       if (!configured.existsSync()) {
         throw Exception(
           'dart_define_from_file "$dartDefineFromFile" not found at ${configured.path}.\n'
@@ -257,7 +271,7 @@ class BuildService {
 
     if (buildFlavor.isEmpty) return const [];
 
-    final conventional = File('${Directory.current.path}/.env.$buildFlavor');
+    final conventional = File('$root/.env.$buildFlavor');
     if (conventional.existsSync()) {
       return ['--dart-define-from-file=.env.$buildFlavor'];
     }
@@ -274,17 +288,13 @@ class BuildService {
   /// gate builds behind a flavor guard (a Gradle/Xcode script that aborts unless
   /// it sees the expected flavor) succeed when invoked through `flow`.
   ///
-  /// `FLOW_BUILD_FLAVOR` is the generic, tool-agnostic name guards should prefer.
-  /// `SAMNAN_BUILD_FLAVOR` is kept for this project's existing guard. Anything
-  /// already set in the caller's environment still wins for other variables —
-  /// these only add the flavor signal. A guard that doesn't read them is
-  /// unaffected, so this is safe for any project.
+  /// `FLOW_BUILD_FLAVOR` is the single, tool-agnostic name a guard should read.
+  /// Anything already set in the caller's environment still wins for other
+  /// variables — this only adds the flavor signal. A guard that doesn't read it
+  /// is unaffected, so this is safe for any project.
   static Map<String, String> _flavorEnvironment(String buildFlavor) {
     if (buildFlavor.isEmpty) return const {};
-    return {
-      'FLOW_BUILD_FLAVOR': buildFlavor,
-      'SAMNAN_BUILD_FLAVOR': buildFlavor,
-    };
+    return {'FLOW_BUILD_FLAVOR': buildFlavor};
   }
 
   static Future<void> _cleanupLegacyFlutterAndroidArtifacts() async {
