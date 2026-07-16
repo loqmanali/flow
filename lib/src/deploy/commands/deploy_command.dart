@@ -72,6 +72,7 @@ class DeployCommand {
     late DeployProvider provider;
     late String buildFlavor;
     late String buildTarget;
+    late String dartDefineFromFile;
     late String selectedProfileName;
     Map<String, dynamic>? selectedProfile;
 
@@ -87,6 +88,7 @@ class DeployCommand {
         args['target'] as String?,
         _deployConfig.buildTarget,
       ]);
+      dartDefineFromFile = _deployConfig.dartDefineFromFile;
       selectedProfileName = '';
       selectedProfile = null;
     } else {
@@ -125,6 +127,12 @@ class DeployCommand {
         _profileBuildValue(profile, 'target'),
         _deployConfig.buildTarget,
       ]);
+      // Each profile can point at its own env file (dev -> .env,
+      // production -> .env.production), falling back to the root config.
+      dartDefineFromFile = _firstNonEmpty([
+        _profileBuildValue(profile, 'dart_define_from_file'),
+        _deployConfig.dartDefineFromFile,
+      ]);
     }
 
     if (provider == DeployProvider.mixed && platform != DeployPlatform.all) {
@@ -147,6 +155,9 @@ class DeployCommand {
     }
     if (buildTarget.isNotEmpty) {
       logger.info('Build target: ${lightCyan.wrap(buildTarget)}');
+    }
+    if (dartDefineFromFile.isNotEmpty) {
+      logger.info('Build config: ${lightCyan.wrap(dartDefineFromFile)}');
     }
 
     final resolvedIosConfig = _mergeConfig(
@@ -173,6 +184,8 @@ class DeployCommand {
         platform: platform,
         mode: mode,
         buildFlavor: buildFlavor,
+        buildTarget: buildTarget,
+        dartDefineFromFile: dartDefineFromFile,
         skipVersionIncrement: skipVersionIncrement,
       );
     }

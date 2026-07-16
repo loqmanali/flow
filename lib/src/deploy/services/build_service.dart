@@ -10,6 +10,8 @@ class BuildService {
     required DeployMode mode,
     required String buildFlavor,
     required bool skipVersionIncrement,
+    String buildTarget = '',
+    String dartDefineFromFile = '',
   }) async {
     await ProcessRunner.runCommand(
       'flutter',
@@ -31,20 +33,44 @@ class BuildService {
     switch (platform) {
       case DeployPlatform.all:
         if (mode == DeployMode.beta) {
-          await buildAndroidApk(buildFlavor: buildFlavor);
+          await buildAndroidApk(
+            buildFlavor: buildFlavor,
+            buildTarget: buildTarget,
+            dartDefineFromFile: dartDefineFromFile,
+          );
         } else {
-          await buildAndroidAppBundle(buildFlavor: buildFlavor);
+          await buildAndroidAppBundle(
+            buildFlavor: buildFlavor,
+            buildTarget: buildTarget,
+            dartDefineFromFile: dartDefineFromFile,
+          );
         }
-        await buildIOS(buildFlavor: buildFlavor);
+        await buildIOS(
+          buildFlavor: buildFlavor,
+          buildTarget: buildTarget,
+          dartDefineFromFile: dartDefineFromFile,
+        );
         break;
       case DeployPlatform.ios:
-        await buildIOS(buildFlavor: buildFlavor);
+        await buildIOS(
+          buildFlavor: buildFlavor,
+          buildTarget: buildTarget,
+          dartDefineFromFile: dartDefineFromFile,
+        );
         break;
       case DeployPlatform.android:
         if (mode == DeployMode.beta) {
-          await buildAndroidApk(buildFlavor: buildFlavor);
+          await buildAndroidApk(
+            buildFlavor: buildFlavor,
+            buildTarget: buildTarget,
+            dartDefineFromFile: dartDefineFromFile,
+          );
         } else {
-          await buildAndroidAppBundle(buildFlavor: buildFlavor);
+          await buildAndroidAppBundle(
+            buildFlavor: buildFlavor,
+            buildTarget: buildTarget,
+            dartDefineFromFile: dartDefineFromFile,
+          );
         }
         break;
     }
@@ -80,14 +106,18 @@ class BuildService {
     }
   }
 
-  static Future<void> buildAndroidApk({String buildFlavor = ''}) async {
+  static Future<void> buildAndroidApk({
+    String buildFlavor = '',
+    String buildTarget = '',
+    String dartDefineFromFile = '',
+  }) async {
     if (await _runProjectFlavorBuild('apk', buildFlavor)) return;
 
     final arguments = [
       'build',
       'apk',
       '--release',
-      ..._flavorBuildArguments(buildFlavor),
+      ...flavorBuildArguments(buildFlavor, buildTarget, dartDefineFromFile),
     ];
     await ProcessRunner.runCommand(
       'flutter',
@@ -97,7 +127,11 @@ class BuildService {
     );
   }
 
-  static Future<void> buildAndroidAppBundle({String buildFlavor = ''}) async {
+  static Future<void> buildAndroidAppBundle({
+    String buildFlavor = '',
+    String buildTarget = '',
+    String dartDefineFromFile = '',
+  }) async {
     if (await _runProjectFlavorBuild('appbundle', buildFlavor)) return;
 
     final arguments = [
@@ -106,7 +140,7 @@ class BuildService {
       '--release',
       '--obfuscate',
       '--split-debug-info=build/app/outputs/symbols',
-      ..._flavorBuildArguments(buildFlavor),
+      ...flavorBuildArguments(buildFlavor, buildTarget, dartDefineFromFile),
     ];
     await ProcessRunner.runCommand(
       'flutter',
@@ -116,7 +150,11 @@ class BuildService {
     );
   }
 
-  static Future<void> buildIOS({String buildFlavor = ''}) async {
+  static Future<void> buildIOS({
+    String buildFlavor = '',
+    String buildTarget = '',
+    String dartDefineFromFile = '',
+  }) async {
     if (await _runProjectFlavorBuild('ipa', buildFlavor)) return;
 
     await ProcessRunner.runCommand(
@@ -131,7 +169,7 @@ class BuildService {
       '--release',
       '--obfuscate',
       '--split-debug-info=build/ios/symbols',
-      ..._flavorBuildArguments(buildFlavor),
+      ...flavorBuildArguments(buildFlavor, buildTarget, dartDefineFromFile),
     ];
     await ProcessRunner.runCommand(
       'flutter',
@@ -168,36 +206,68 @@ class BuildService {
     return true;
   }
 
-  static List<String> _flavorBuildArguments(String buildFlavor) {
+  /// Resolves the flavor/target/dart-define arguments for a `flutter build`.
+  /// Public so both the CLI and embedders (Flow Studio) can verify what a
+  /// deploy would pass without running a build.
+  static List<String> flavorBuildArguments(
+    String buildFlavor,
+    String buildTarget,
+    String dartDefineFromFile,
+  ) {
     final arguments = <String>[];
     if (buildFlavor.isNotEmpty) {
-      arguments.addAll([
-        '--flavor',
-        buildFlavor,
-        '--target',
-        'lib/main_$buildFlavor.dart',
-      ]);
+      // An explicitly configured target wins; otherwise fall back to the
+      // `lib/main_<flavor>.dart` convention. Projects whose entrypoints don't
+      // follow that naming would silently build the wrong target without this.
+      final target = buildTarget.isNotEmpty ? buildTarget : 'lib/main_$buildFlavor.dart';
+      arguments.addAll(['--flavor', buildFlavor, '--target', target]);
+    } else if (buildTarget.isNotEmpty) {
+      arguments.addAll(['--target', buildTarget]);
     }
-    arguments.addAll(_dartDefineArguments(buildFlavor));
+    arguments.addAll(dartDefineArguments(buildFlavor, dartDefineFromFile));
     return arguments;
   }
 
-  /// Injects the flavor's compile-time configuration via
-  /// `--dart-define-from-file=.env.<flavor>` when that file exists at the
-  /// project root.
+  /// Resolves the `--dart-define-from-file` argument for a build.
   ///
   /// Apps commonly read required config (API URLs, keys, the build env marker)
   /// through `String.fromEnvironment`, which is empty unless the defines are
   /// passed at build time. Without this, a `flow`-built release compiles and
-  /// distributes fine but crashes on launch (stuck on the native splash) the
-  /// moment it validates its missing env. Mirrors how a project's own flavor
-  /// runner passes the defines. No file → no args, so this is safe for projects
-  /// that don't use dart-define files.
-  static List<String> _dartDefineArguments(String buildFlavor) {
+  /// distributes fine but is dead on launch — pointing at placeholder hosts or
+  /// stuck on the native splash — the moment it reads its missing env.
+  ///
+  /// Resolution order:
+  ///  1. An explicit `build.dart_define_from_file` — a missing file here is a
+  ///     hard error, since the project asked for a config that isn't there.
+  ///     Silently dropping it is what ships a broken release.
+  ///  2. The `.env.<flavor>` convention, when that file exists.
+  ///  3. Nothing — but warn when a flavor is set, because a flavored release
+  ///     with no defines is far more likely a misconfiguration than intent.
+  static List<String> dartDefineArguments(String buildFlavor, String dartDefineFromFile) {
+    if (dartDefineFromFile.isNotEmpty) {
+      final configured = File('${Directory.current.path}/$dartDefineFromFile');
+      if (!configured.existsSync()) {
+        throw Exception(
+          'dart_define_from_file "$dartDefineFromFile" not found at ${configured.path}.\n'
+          'Fix the path in .flow_deploy.json, or remove it to use the .env.<flavor> convention.',
+        );
+      }
+      return ['--dart-define-from-file=$dartDefineFromFile'];
+    }
+
     if (buildFlavor.isEmpty) return const [];
-    final envFile = File('${Directory.current.path}/.env.$buildFlavor');
-    if (!envFile.existsSync()) return const [];
-    return ['--dart-define-from-file=.env.$buildFlavor'];
+
+    final conventional = File('${Directory.current.path}/.env.$buildFlavor');
+    if (conventional.existsSync()) {
+      return ['--dart-define-from-file=.env.$buildFlavor'];
+    }
+
+    logger.warn(
+      'No dart-define file for flavor "$buildFlavor": .env.$buildFlavor not found '
+      'and build.dart_define_from_file is not set. Building without compile-time '
+      'config — if the app reads String.fromEnvironment, this artifact will be broken.',
+    );
+    return const [];
   }
 
   /// Extra environment variables exported to the native build so projects that

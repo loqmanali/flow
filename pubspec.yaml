@@ -1,6 +1,6 @@
 name: flow
 description: Flutter flavor + deployment CLI. Configure build flavors, run, version, and ship to TestFlight, the stores, or Firebase App Distribution.
-version: 0.1.0
+version: 0.3.0
 repository: https://github.com/loqmanali/flow
 homepage: https://github.com/loqmanali/flow
 issue_tracker: https://github.com/loqmanali/flow/issues
