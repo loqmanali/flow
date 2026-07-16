@@ -2,7 +2,11 @@ import 'dart:io';
 import 'logger.dart';
 
 class ProcessRunner {
-  static final String _projectDir = Directory.current.path;
+  static String get _projectDir => Directory.current.path;
+
+  /// Where subprocess output goes. Defaults to the terminal; embedders
+  /// (flow_studio) set this to stream logs into a UI console instead.
+  static void Function(String text)? outputSink;
 
   static Future<void> runCommand(
     String executable, {
@@ -28,10 +32,10 @@ class ProcessRunner {
         environment: mergedEnvironment,
       );
       process.stdout.transform(const SystemEncoding().decoder).listen((data) {
-        stdout.write(data);
+        (outputSink ?? stdout.write)(data);
       });
       process.stderr.transform(const SystemEncoding().decoder).listen((data) {
-        stderr.write(data);
+        (outputSink ?? stderr.write)(data);
       });
       final exitCode = await process.exitCode;
       if (exitCode != 0) {

@@ -1,3 +1,18 @@
+## 0.2.0
+
+### Flow Studio (new)
+- Add `flow_studio`, a Flutter desktop (macOS) GUI for the flow engine — project picker with recent projects, flavor management, a deploy screen, an init wizard, and a live log console.
+- Studio imports the engine directly via a path dependency instead of shelling out to the `flow` executable, so both frontends run the exact same business logic.
+
+### Engine embedding surface
+- Add `lib/engine.dart` — the public embedding library for GUI frontends, exporting the deploy/flavor commands, config models, `ProcessRunner`, `PubspecUtils`, and the logger contract.
+- `AppLogger` accepts an optional `AppLoggerInteraction` so embedders answer prompts with dialogs or fixed defaults instead of blocking on stdin, and an optional `messageSink` that mirrors every log line into a host UI. With both unset, CLI behavior is byte-for-byte unchanged.
+- `ProcessRunner.outputSink` redirects subprocess stdout/stderr into an embedder's console; defaults to the terminal.
+- `Constants`, `ProcessRunner`, and `PubspecUtils` resolve the project directory through a live getter rather than a field captured at class-load time, so embedders can retarget a project by setting `Directory.current`. The CLI's working directory never changes mid-run, so its behavior is identical.
+
+### Refactoring
+- Extract `DeployConfigInitializer` — the non-interactive core of `flow deploy init` (template composition, `.gitignore` handling, non-overwriting config writes). `InitCommand` now only collects answers and delegates, so the CLI and Studio share one implementation.
+
 ## 0.1.1
 
 ### Documentation

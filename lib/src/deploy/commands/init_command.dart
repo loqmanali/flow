@@ -1,7 +1,7 @@
 import 'dart:io';
 import '../constants.dart';
+import '../deploy_initializer.dart';
 import '../logger.dart';
-import '../templates.dart';
 
 class InitCommand {
   Future<void> execute() async {
@@ -9,15 +9,13 @@ class InitCommand {
 
     if (File(Constants.gitignorePath).existsSync()) {
       const formattedPath = '/.flow_deploy.json';
-      final gitignoreContent = File(Constants.gitignorePath).readAsStringSync();
-
-      if (!gitignoreContent.contains(formattedPath)) {
-        File(
-          Constants.gitignorePath,
-        ).writeAsStringSync('$gitignoreContent\n$formattedPath');
-        logger.detail('Added $formattedPath to .gitignore');
-      } else {
+      final alreadyIgnored =
+          File(Constants.gitignorePath).readAsStringSync().contains(formattedPath);
+      DeployConfigInitializer.ensureGitignored();
+      if (alreadyIgnored) {
         logger.detail('$formattedPath already in .gitignore');
+      } else {
+        logger.detail('Added $formattedPath to .gitignore');
       }
     }
 
@@ -27,64 +25,37 @@ class InitCommand {
       'Creating deployment config at ${Constants.deployConfigFilePath}...',
     );
     final configContent = _promptInitConfigTemplate();
-    _writeToFile(Constants.deployConfigFilePath, content: configContent);
+    final created = DeployConfigInitializer.writeConfig(configContent);
+    if (created) {
+      logger.success('Created ${Constants.deployConfigFilePath}');
+    } else {
+      logger.warn('File ${Constants.deployConfigFilePath} already exists.');
+    }
   }
 
   String _promptInitConfigTemplate() {
-    final templateKind = logger.chooseOne(
+    final templateChoice = logger.chooseOne(
       'Select config template to generate:',
       choices: ['Fastlane', 'Firebase App Distribution', 'Both'],
       defaultValue: 'Both',
     );
-
-    late String templateContent;
-
-    switch (templateKind) {
-      case 'Fastlane':
-        templateContent = Templates.deployConfigFastlaneContent;
-        break;
-      case 'Firebase App Distribution':
-        templateContent = Templates.deployConfigFirebaseContent;
-        break;
-      case 'Both':
-        templateContent = Templates.deployConfigContent;
-        break;
-    }
+    final templateKind = switch (templateChoice) {
+      'Fastlane' => 'fastlane',
+      'Firebase App Distribution' => 'firebase',
+      _ => 'both',
+    };
 
     final includeFlavorConfig = logger.confirm(
       'Include flavor configuration?',
     );
-    if (includeFlavorConfig) {
-      templateContent = Templates.withFlavorConfig(templateContent);
-    }
-
-    if (logger.confirm(
+    final generateProfiles = logger.confirm(
       'Generate deployment profiles like deploy dev?',
-    )) {
-      templateContent = Templates.withProfilesConfig(
-        templateContent,
-        templateKind:
-            templateKind == 'Fastlane'
-                ? 'fastlane'
-                : templateKind == 'Firebase App Distribution'
-                ? 'firebase'
-                : 'both',
-        includeFlavorConfig: includeFlavorConfig,
-      );
-    }
+    );
 
-    return templateContent;
-  }
-
-  void _writeToFile(String path, {String? content}) {
-    if (!File(path).existsSync()) {
-      File(path).createSync();
-      if (content != null) {
-        File(path).writeAsStringSync(content);
-      }
-      logger.success('Created $path');
-    } else {
-      logger.warn('File $path already exists.');
-    }
+    return DeployConfigInitializer.composeTemplate(
+      templateKind: templateKind,
+      includeFlavorConfig: includeFlavorConfig,
+      generateProfiles: generateProfiles,
+    );
   }
 }

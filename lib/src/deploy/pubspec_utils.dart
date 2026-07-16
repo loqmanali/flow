@@ -2,7 +2,7 @@ import 'dart:io';
 import 'logger.dart';
 
 class PubspecUtils {
-  static final String _projectDir = Directory.current.path;
+  static String get _projectDir => Directory.current.path;
 
   static Future<String> get appVersion async {
     final file = File('$_projectDir/pubspec.yaml');

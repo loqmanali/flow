@@ -2,7 +2,10 @@ import 'dart:io';
 
 class Constants {
   Constants._();
-  static final String _projectDir = Directory.current.path;
+  // Live getter (not a captured final): embedders like flow_studio point
+  // the engine at a project by setting [Directory.current]; the CLI's cwd
+  // never changes mid-run, so CLI behavior is identical.
+  static String get _projectDir => Directory.current.path;
 
   static String get projectDir => _projectDir;
 
