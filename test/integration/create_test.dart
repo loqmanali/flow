@@ -388,7 +388,12 @@ void main() {
       () async {
         final process = await runFlow(['create']);
         final stderr = await process.stderr.rest.join('\n');
-        await process.shouldExit(isNot(0));
+        // Assert 64 (usage) exactly, not merely non-zero. A crash inside the
+        // wizard exits 70, which `isNot(0)` would happily accept — that is
+        // precisely how a real regression slipped through: the guard checked
+        // only stdin, so a redirected stdout crashed mason_logger with
+        // "No terminal attached to stdout" and still "passed" this test.
+        await process.shouldExit(64);
         expect(stderr.toLowerCase(), contains('project name'));
       },
       timeout: const Timeout(Duration(seconds: 15)),
@@ -399,7 +404,9 @@ void main() {
       () async {
         final process = await runFlow(['create', '--no-input']);
         final stderr = await process.stderr.rest.join('\n');
-        await process.shouldExit(isNot(0));
+        // 64 exactly, for the same reason as the test above: a wizard crash
+        // exits 70 and would slip past `isNot(0)`.
+        await process.shouldExit(64);
         expect(stderr.toLowerCase(), contains('project name'));
       },
       timeout: const Timeout(Duration(seconds: 15)),
