@@ -101,7 +101,13 @@ class CreateCommand extends Command<int> {
       // fast. `--no-input`, and any non-tty stdin (CI, a pipe), must never
       // block on a prompt that can never be answered.
       final noInput = results['no-input'] as bool;
-      if (!shouldRunCreateWizard(noInput: noInput, hasTerminal: stdin.hasTerminal)) {
+      // BOTH streams must be a tty. mason_logger's prompts read stdin but
+      // render to stdout, and throw `Bad state: No terminal attached to
+      // stdout` if stdout is redirected — so checking stdin alone lets
+      // `flow create > log.txt` crash with exit 70 instead of failing
+      // cleanly as a usage error.
+      final interactive = stdin.hasTerminal && stdout.hasTerminal;
+      if (!shouldRunCreateWizard(noInput: noInput, hasTerminal: interactive)) {
         usageException('Missing project name. Usage: $invocation');
       }
 
