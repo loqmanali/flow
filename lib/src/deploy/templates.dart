@@ -353,6 +353,26 @@ class Templates {
   },
 ''';
 
+  /// Fills every placeholder in [iosFastFileContent]. The result must contain
+  /// no `%placeholder%` left over — a Fastfile that ships one fails at the
+  /// fastlane lane, far from the cause. See `ios_fastfile_test.dart`.
+  static String renderIosFastfile({
+    required String keyId,
+    required String issuerId,
+    required String keyFilepath,
+    required String appIdentifier,
+    required bool enableExternalTesting,
+    required String externalTestingConfig,
+  }) {
+    return iosFastFileContent
+        .replaceAll('%key_id%', keyId)
+        .replaceAll('%issuer_id%', issuerId)
+        .replaceAll('%key_filepath%', keyFilepath)
+        .replaceAll('%app_identifier%', appIdentifier)
+        .replaceAll('%enable_external_testing%', enableExternalTesting.toString())
+        .replaceAll('%external_testing_config%', externalTestingConfig);
+  }
+
   static const String iosFastFileContent = '''
 # This file contains the fastlane.tools configuration
 # You can find the documentation at https://docs.fastlane.tools
@@ -371,6 +391,14 @@ class Templates {
 
 default_platform(:ios)
 
+# Resolved at lane runtime, not when flow writes this file: the .ipa does not
+# exist yet while the Fastfile is being generated.
+def flutter_ipa_path
+  ipas = Dir["../build/ios/ipa/*.ipa"]
+  UI.user_error!("No .ipa found in build/ios/ipa. Run a build first.") if ipas.empty?
+  ipas.max_by { |path| File.mtime(path) }
+end
+
 platform :ios do
   before_all do
     app_store_connect_api_key(
@@ -384,7 +412,7 @@ platform :ios do
   lane :beta do
     pilot(
       app_identifier: "%app_identifier%",
-      ipa: "../build/ios/ipa/%display_name%.ipa",
+      ipa: flutter_ipa_path,
       distribute_external: %enable_external_testing%,
       notify_external_testers: %enable_external_testing%,
       beta_app_description: "This Build for TESTING",
@@ -398,7 +426,7 @@ platform :ios do
   lane :new_update do
     deliver(
       app_identifier: "%app_identifier%",
-      ipa: "../build/ios/ipa/%display_name%.ipa",
+      ipa: flutter_ipa_path,
       skip_screenshots: true,
       precheck_include_in_app_purchases: false,
       submit_for_review: true,

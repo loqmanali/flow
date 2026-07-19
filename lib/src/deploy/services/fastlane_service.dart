@@ -27,7 +27,6 @@ class FastlaneService {
     required String buildFlavor,
     required Map<String, dynamic> resolvedIosConfig,
     required Map<String, dynamic> resolvedAndroidConfig,
-    required bool skipBuild,
   }) async {
     final progress = logger.progress('Initializing Fastlane');
     if (!await isInstalled()) {
@@ -41,7 +40,6 @@ class FastlaneService {
         mode: mode,
         buildFlavor: buildFlavor,
         resolvedIosConfig: resolvedIosConfig,
-        skipBuild: skipBuild,
       );
       await _initializeAndroid(
         buildFlavor: buildFlavor,
@@ -52,7 +50,6 @@ class FastlaneService {
         mode: mode,
         buildFlavor: buildFlavor,
         resolvedIosConfig: resolvedIosConfig,
-        skipBuild: skipBuild,
       );
     } else if (platform == DeployPlatform.android) {
       await _initializeAndroid(
@@ -67,7 +64,6 @@ class FastlaneService {
     required DeployMode mode,
     required String buildFlavor,
     required Map<String, dynamic> resolvedIosConfig,
-    required bool skipBuild,
   }) async {
     try {
       final iosDir = Directory(Constants.iosDirPath);
@@ -82,10 +78,7 @@ class FastlaneService {
         await fastlaneDir.create(recursive: true);
       }
 
-      await _createIosFastfile(
-        resolvedIosConfig: resolvedIosConfig,
-        skipBuild: skipBuild,
-      );
+      await _createIosFastfile(resolvedIosConfig: resolvedIosConfig);
     } catch (e) {
       throw Exception('Failed to initialize iOS Fastlane: $e');
     }
@@ -119,7 +112,6 @@ class FastlaneService {
 
   static Future<void> _createIosFastfile({
     required Map<String, dynamic> resolvedIosConfig,
-    required bool skipBuild,
   }) async {
     try {
       final appStoreConfig = resolvedIosConfig['app_store_connect'] as Map<String, dynamic>?;
@@ -153,38 +145,14 @@ class FastlaneService {
         externalTestingConfig = _buildExternalTestingConfig(testflightConfig!);
       }
 
-      const fastlaneTemplate = Templates.iosFastFileContent;
-
-      if ([
-        '%key_id%',
-        '%issuer_id%',
-        '%key_filepath%',
-        '%display_name%',
-        '%app_identifier%',
-      ].any((placeholder) => !fastlaneTemplate.contains(placeholder))) {
-        throw Exception(
-          'Error: Missing one of the required placeholders in the iOS Fastlane template: %key_id%, %issuer_id%, %key_filepath%, %display_name%, %app_identifier%',
-        );
-      }
-
-      String fastlaneContent = fastlaneTemplate
-          .replaceAll('%key_id%', keyId!)
-          .replaceAll('%issuer_id%', issuerId!)
-          .replaceAll('%key_filepath%', keyFilepath!)
-          .replaceAll('%app_identifier%', appIdentifier)
-          .replaceAll(
-            '%enable_external_testing%',
-            enableExternalTesting.toString(),
-          )
-          .replaceAll('%external_testing_config%', externalTestingConfig);
-
-      if (skipBuild) {
-        final iosIpaName = await Utils.iosIpaName;
-        fastlaneContent = fastlaneContent.replaceAll(
-          '%display_name%',
-          iosIpaName,
-        );
-      }
+      final fastlaneContent = Templates.renderIosFastfile(
+        keyId: keyId!,
+        issuerId: issuerId!,
+        keyFilepath: keyFilepath!,
+        appIdentifier: appIdentifier,
+        enableExternalTesting: enableExternalTesting,
+        externalTestingConfig: externalTestingConfig,
+      );
 
       final fastfile = File(Constants.iosFastfilePath);
       await fastfile.writeAsString(fastlaneContent);

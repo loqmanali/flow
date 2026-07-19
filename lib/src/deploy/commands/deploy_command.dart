@@ -174,7 +174,6 @@ class DeployCommand {
       platform: platform,
       mode: mode,
       buildFlavor: buildFlavor,
-      skipBuild: skipBuild,
       resolvedIosConfig: resolvedIosConfig,
       resolvedAndroidConfig: resolvedAndroidConfig,
     );
@@ -226,7 +225,6 @@ class DeployCommand {
     required DeployPlatform platform,
     required DeployMode mode,
     required String buildFlavor,
-    required bool skipBuild,
     required Map<String, dynamic> resolvedIosConfig,
     required Map<String, dynamic> resolvedAndroidConfig,
   }) async {
@@ -238,7 +236,6 @@ class DeployCommand {
           buildFlavor: buildFlavor,
           resolvedIosConfig: resolvedIosConfig,
           resolvedAndroidConfig: resolvedAndroidConfig,
-          skipBuild: skipBuild,
         );
         break;
       case DeployProvider.firebase:
@@ -256,7 +253,6 @@ class DeployCommand {
           buildFlavor: buildFlavor,
           resolvedIosConfig: resolvedIosConfig,
           resolvedAndroidConfig: resolvedAndroidConfig,
-          skipBuild: skipBuild,
         );
         await FirebaseService.initialize(
           mode: mode,

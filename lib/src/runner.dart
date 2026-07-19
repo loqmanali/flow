@@ -2,6 +2,7 @@ import 'package:args/command_runner.dart';
 
 import 'commands/deploy_group.dart';
 import 'commands/flavor_group.dart';
+import 'create/commands/create_command.dart';
 import 'shared/version_reader.dart';
 
 /// Constructs the top-level [CommandRunner] for the `flow` CLI.
@@ -21,12 +22,15 @@ Future<CommandRunner<int>> buildFlowRunner() async {
   );
   runner
     ..addCommand(FlavorGroupCommand())
-    ..addCommand(DeployGroupCommand());
+    ..addCommand(DeployGroupCommand())
+    ..addCommand(CreateCommand());
   return runner;
 }
 
 /// The set of top-level command names recognised by [buildFlowRunner].
 ///
 /// Used by `bin/flow.dart` to detect profile shortcuts like `flow dev`, which
-/// are forwarded to `flow deploy run dev`.
-const Set<String> kTopLevelCommands = {'flavor', 'deploy', 'help'};
+/// are forwarded to `flow deploy run dev`. `create` MUST stay in this set —
+/// otherwise `flow create my_app` is silently rewritten into
+/// `flow deploy run create my_app` instead of scaffolding a project.
+const Set<String> kTopLevelCommands = {'flavor', 'deploy', 'create', 'help'};

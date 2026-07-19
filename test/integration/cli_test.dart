@@ -35,6 +35,7 @@ void main() {
       final output = await p.stdout.rest.join('\n');
       expect(output, contains('flavor'));
       expect(output, contains('deploy'));
+      expect(output, contains('create'));
       await p.shouldExit(0);
     });
 

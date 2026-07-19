@@ -1,5 +1,8 @@
 ## 0.3.0
 
+### Breaking
+- **Dropped the hardcoded `SAMNAN_BUILD_FLAVOR` env var.** Builds now export only `FLOW_BUILD_FLAVOR`, the generic, tool-agnostic flavor signal. A project whose native flavor guard reads `SAMNAN_BUILD_FLAVOR` must rename it to `FLOW_BUILD_FLAVOR` (in its Gradle guard, Xcode run-script, `tool/flavor.dart`, and `.vscode/launch.json`). One project's name never belonged in a shared tool.
+
 ### Fixed
 - **`build.target` was silently ignored.** The deploy command read the configured target, printed it in the run summary, then dropped it — every build hardcoded `lib/main_<flavor>.dart`. A project whose entrypoints don't follow that naming was told it was building one target while it built another. The configured target is now passed through, with the convention kept as the fallback.
 - **Flavored builds could ship with no compile-time config.** `--dart-define-from-file` was resolved only from the `.env.<flavor>` convention, and a missing file returned no arguments *silently*. A project that names env files differently (`.env` for a `dev` flavor) built and uploaded a release whose `String.fromEnvironment` values were all empty — an artifact that installs fine and is dead on launch. Resolution is now explicit-first and never fails quietly.
@@ -10,7 +13,7 @@
 - Tests covering dart-define resolution and target selection (`test/deploy/build_arguments_test.dart`).
 
 ### Changed
-- `BuildService.flavorBuildArguments` / `dartDefineArguments` are now public, so the CLI, Flow Studio, and tests can inspect what a deploy would pass without running a build.
+- `BuildService.flavorBuildArguments` / `dartDefineArguments` are now public, so the CLI, Flow Studio, and tests can inspect what a deploy would pass without running a build. Both take an optional `projectDir`, defaulting to the current working directory, so callers can resolve against a directory without mutating process-wide `Directory.current`.
 - `pubspec.yaml` version now matches the changelog — it still read `0.1.0` after the 0.2.0 entry, so `flow --version` under-reported the running build.
 
 ## 0.2.0

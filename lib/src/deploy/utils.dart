@@ -36,29 +36,6 @@ class Utils {
     return '${Constants.projectDir}/build/app/outputs/mapping/$buildVariant/mapping.txt';
   }
 
-  static Future<String> get iosIpaName async {
-    final Directory buildDir = Directory(Constants.buildIosIpaDirPath);
-    if (!buildDir.existsSync()) {
-      throw Exception(
-        'Build directory not found at ${Constants.buildIosIpaDirPath}',
-      );
-    }
-
-    // Find the first .ipa file in the directory
-    final ipaFile = buildDir.listSync().whereType<File>().where(
-      (file) => file.path.endsWith('.ipa'),
-    );
-
-    if (ipaFile.isEmpty) {
-      throw Exception('No .ipa file found in build directory');
-    }
-
-    final ipaFilePath = ipaFile.first.path;
-    final ipaFileName = ipaFilePath.split('/').last;
-    final ipaName = ipaFileName.split('.').first;
-    return ipaName;
-  }
-
   Utils._();
 
   static Future<String> get iosBundleId async {
