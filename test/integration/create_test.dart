@@ -12,6 +12,11 @@ import 'package:test_process/test_process.dart';
 /// the working directory used during a test.
 final String _binFlow = File('bin/flow.dart').absolute.path;
 
+/// A real, valid `project.pbxproj` (copied verbatim from flutter_starter)
+/// for tests that exercise `IOSService`'s Xcode automation, which needs a
+/// file the `xcodeproj` Ruby gem can actually parse.
+final File _realIosProjectFixture = File('test/fixtures/real_ios_project.pbxproj').absolute;
+
 Future<TestProcess> runFlow(List<String> args, {String? workingDirectory}) {
   return TestProcess.start('dart', [
     'run',
@@ -33,7 +38,14 @@ Future<TestProcess> runFlow(List<String> args, {String? workingDirectory}) {
 ///   a substring of the old package name — the word-boundary regression
 ///   this whole feature is built around,
 /// - Android + iOS identity files with the same shape as flutter_starter's.
-String _createFixtureTemplate() {
+///
+/// [realIosProject] swaps in a real, valid `project.pbxproj` (copied from
+/// flutter_starter, checked into `test/fixtures/`) instead of the 3-line
+/// placeholder above — the placeholder is enough for the regex-based
+/// identity rewrite, but `IOSService`'s Xcode automation shells out to the
+/// `xcodeproj` Ruby gem, which parses the file as a real ASCII plist and
+/// rejects the placeholder outright.
+String _createFixtureTemplate({bool realIosProject = false}) {
   final dir = p.join(d.sandbox, 'template');
   Directory(p.join(dir, 'lib')).createSync(recursive: true);
   Directory(p.join(dir, 'android/app/src/main')).createSync(recursive: true);
@@ -126,11 +138,17 @@ android {
 </plist>
 ''');
 
-  File(p.join(dir, 'ios/Runner.xcodeproj/project.pbxproj')).writeAsStringSync('''
+  if (realIosProject) {
+    File(
+      p.join(dir, 'ios/Runner.xcodeproj/project.pbxproj'),
+    ).writeAsStringSync(_realIosProjectFixture.readAsStringSync());
+  } else {
+    File(p.join(dir, 'ios/Runner.xcodeproj/project.pbxproj')).writeAsStringSync('''
         PRODUCT_BUNDLE_IDENTIFIER = com.example.fixtureTemplate;
         PRODUCT_BUNDLE_IDENTIFIER = com.example.fixtureTemplate.RunnerTests;
         PRODUCT_BUNDLE_IDENTIFIER = com.example.fixtureTemplate;
 ''');
+  }
 
   void git(List<String> args) {
     final result = Process.runSync('git', args, workingDirectory: dir);
@@ -250,41 +268,92 @@ void main() {
       expect(pbxproj, contains('PRODUCT_BUNDLE_IDENTIFIER = com.acme.myapp;'));
     });
 
-    test('--flavors adds productFlavors with a suffix on every non-production flavor', () async {
-      final template = _createFixtureTemplate();
-      final output = p.join(d.sandbox, 'out');
-      Directory(output).createSync(recursive: true);
+    test(
+      '--flavors generates real native artefacts on both Android and iOS',
+      () async {
+        final template = _createFixtureTemplate(realIosProject: true);
+        final output = p.join(d.sandbox, 'out');
+        Directory(output).createSync(recursive: true);
 
-      final process = await runFlow([
-        'create',
-        'my_app',
-        '--org',
-        'com.acme',
-        '--template',
-        template,
-        '--ref',
-        'main',
-        '--output',
-        output,
-        '--no-pub-get',
-        '--flavors',
-        'dev,production',
-      ]);
-      final stdout = await process.stdout.rest.join('\n');
-      final stderr = await process.stderr.rest.join('\n');
-      await process.shouldExit(0);
+        final process = await runFlow([
+          'create',
+          'my_app',
+          '--org',
+          'com.acme',
+          '--template',
+          template,
+          '--ref',
+          'main',
+          '--output',
+          output,
+          '--no-pub-get',
+          '--flavors',
+          'dev,production',
+        ]);
+        final stdout = await process.stdout.rest.join('\n');
+        await process.shouldExit(0);
 
-      final target = p.join(output, 'my_app');
-      final gradle = File(p.join(target, 'android/app/build.gradle.kts')).readAsStringSync();
-      expect(gradle, contains('productFlavors {'));
-      expect(gradle, contains('create("dev")'));
-      expect(gradle, contains('applicationIdSuffix = ".dev"'));
-      expect(gradle, contains('create("production")'));
-      expect(gradle, isNot(contains('applicationIdSuffix = ".production"')));
+        final target = p.join(output, 'my_app');
 
-      // AppLogger.warn writes to stderr (mason_logger convention).
-      expect(stdout + stderr, contains('iOS schemes were NOT generated'));
-    });
+        // Android: productFlavors with a suffix on every non-production flavor.
+        final gradle = File(p.join(target, 'android/app/build.gradle.kts')).readAsStringSync();
+        expect(gradle, contains('productFlavors {'));
+        expect(gradle, contains('create("dev")'));
+        expect(gradle, contains('applicationIdSuffix = ".dev"'));
+        expect(gradle, contains('create("production")'));
+        expect(gradle, isNot(contains('applicationIdSuffix = ".production"')));
+
+        // No more "iOS not generated" disclaimer — it now really is.
+        expect(stdout, isNot(contains('iOS schemes were NOT generated')));
+        expect(stdout, contains('Android productFlavors generated for: dev, production'));
+        expect(stdout, contains('iOS schemes generated for: dev, production'));
+
+        // iOS: a real .xcconfig per flavor.
+        final devXcconfig =
+            File(
+              p.join(target, 'ios/Flutter/dev.xcconfig'),
+            ).readAsStringSync();
+        expect(devXcconfig, contains('FLUTTER_TARGET=lib/main_dev.dart'));
+        expect(devXcconfig, contains('FLUTTER_FLAVOR=dev'));
+        expect(devXcconfig, contains('BUNDLE_ID_SUFFIX=.dev'));
+
+        final productionXcconfig =
+            File(
+              p.join(target, 'ios/Flutter/production.xcconfig'),
+            ).readAsStringSync();
+        expect(productionXcconfig, contains('FLUTTER_TARGET=lib/main_production.dart'));
+        expect(productionXcconfig, contains('BUNDLE_ID_SUFFIX=\n'));
+
+        // iOS: a real scheme per flavor.
+        final schemeDir = p.join(
+          target,
+          'ios/Runner.xcodeproj/xcshareddata/xcschemes',
+        );
+        expect(File(p.join(schemeDir, 'DEV.xcscheme')).existsSync(), isTrue);
+        expect(File(p.join(schemeDir, 'PRODUCTION.xcscheme')).existsSync(), isTrue);
+
+        // iOS: the pbxproj gained per-flavor build configurations and is
+        // still a valid plist.
+        final pbxprojPath = p.join(target, 'ios/Runner.xcodeproj/project.pbxproj');
+        final pbxproj = File(pbxprojPath).readAsStringSync();
+        expect(pbxproj, contains('Debug-DEV'));
+        expect(pbxproj, contains('Release-DEV'));
+        expect(pbxproj, contains('Debug-PRODUCTION'));
+        expect(pbxproj, contains('Release-PRODUCTION'));
+
+        if (Platform.isMacOS) {
+          final lint = Process.runSync('plutil', ['-lint', pbxprojPath]);
+          expect(
+            lint.exitCode,
+            0,
+            reason:
+                'plutil -lint should accept the rewritten pbxproj: ${lint.stdout}${lint.stderr}',
+          );
+        }
+      },
+      // The real xcodeproj/Ruby automation is slower than a pure-Dart test.
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
 
     test('fails before creating anything when the name is invalid', () async {
       final template = _createFixtureTemplate();

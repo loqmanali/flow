@@ -5,6 +5,9 @@ import 'package:io/io.dart' show ExitCode;
 import 'package:mason_logger/mason_logger.dart' show lightCyan, styleBold;
 import 'package:path/path.dart' as p;
 
+import '../../flavor/services/android_service.dart';
+import '../../flavor/services/config_service.dart';
+import '../../flavor/services/ios_service.dart';
 import '../../flavor/utils/logger.dart';
 import '../constants.dart';
 import '../services/flavor_service.dart';
@@ -199,9 +202,9 @@ class CreateCommand extends Command<int> {
       _log.warn('Skipped `flutter pub get` (--no-pub-get). Run it yourself before building.');
     }
 
-    // 6. --flavors: Android only.
+    // 6. --flavors: real native artefacts on both platforms.
     if (flavors.isNotEmpty) {
-      _applyFlavors(target: target, flavors: flavors);
+      _applyFlavors(target: target, flavors: flavors, bundleId: bundleId, display: display);
     }
 
     // 7. Final output.
@@ -358,24 +361,49 @@ class CreateCommand extends Command<int> {
     fixProgress.complete('dart fix applied');
   }
 
-  void _applyFlavors({required String target, required List<String> flavors}) {
-    final gradleFile = File(p.join(target, 'android/app/build.gradle.kts'));
-    if (!gradleFile.existsSync()) {
-      _log.warn(
-        '${gradleFile.path} not found. Add productFlavors for ${flavors.join(', ')} by hand.',
+  /// Generates real native Android + iOS flavor artefacts by calling the
+  /// exact same services `flow flavor init` uses on an existing project —
+  /// see `buildNativeFlavorConfig` for why this never touches
+  /// `.flow_flavor.json` or the template's `lib/main_<flavor>.dart`
+  /// entrypoints.
+  void _applyFlavors({
+    required String target,
+    required List<String> flavors,
+    required String bundleId,
+    required String display,
+  }) {
+    final config = buildNativeFlavorConfig(flavors: flavors, appName: display, bundleId: bundleId);
+
+    // Both services read this global instead of taking the project root as
+    // a parameter, so it's scoped to the freshly cloned project for the
+    // duration of this call and restored afterwards no matter the outcome —
+    // `flow create` (unlike `flow flavor`) doesn't run from the project
+    // root.
+    final previousRoot = ConfigService.root;
+    ConfigService.root = target;
+    try {
+      final androidProgress = _log.progress(
+        'Generating Android productFlavors for: ${flavors.join(', ')}',
       );
-      return;
+      try {
+        AndroidService.setupFlavors(config: config, logger: _log);
+        androidProgress.complete('Android productFlavors generated for: ${flavors.join(', ')}');
+      } catch (e) {
+        androidProgress.fail('Android flavor setup failed: $e');
+      }
+
+      final iosProgress = _log.progress(
+        'Generating iOS schemes and xcconfigs for: ${flavors.join(', ')}',
+      );
+      try {
+        IOSService.setupSchemes(config: config, logger: _log);
+        iosProgress.complete('iOS schemes generated for: ${flavors.join(', ')}');
+      } catch (e) {
+        iosProgress.fail('iOS scheme setup failed: $e');
+      }
+    } finally {
+      ConfigService.root = previousRoot;
     }
-    final updated = applyProductFlavors(gradleFile.readAsStringSync(), flavors);
-    gradleFile.writeAsStringSync(updated);
-    _log.success(
-      'Added Android productFlavors for: ${flavors.join(', ')} '
-      '(applicationIdSuffix on every flavor except "production").',
-    );
-    _log.warn(
-      'iOS schemes were NOT generated for these flavors — run `flow flavor init` '
-      'or configure Xcode schemes/xcconfigs by hand.',
-    );
   }
 
   void _printNextSteps({required String target, required String name, required bool pubGetRan}) {
