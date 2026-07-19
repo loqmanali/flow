@@ -375,4 +375,41 @@ void main() {
       expect(stderr.toLowerCase(), isNot(contains('profile')));
     });
   });
+
+  group('flow create wizard — CI safety', () {
+    // The single most important test in this feature: `flow create` with no
+    // name and no terminal must fail fast with a clear usage error, never
+    // hang waiting on a prompt nobody can answer. `TestProcess` pipes stdin
+    // (no tty attached), so this exercises the exact CI shape. A short
+    // explicit timeout turns a regression into a fast, obvious test failure
+    // instead of the suite hanging.
+    test(
+      'a non-tty invocation with no project name exits non-zero instead of hanging',
+      () async {
+        final process = await runFlow(['create']);
+        final stderr = await process.stderr.rest.join('\n');
+        // Assert 64 (usage) exactly, not merely non-zero. A crash inside the
+        // wizard exits 70, which `isNot(0)` would happily accept — that is
+        // precisely how a real regression slipped through: the guard checked
+        // only stdin, so a redirected stdout crashed mason_logger with
+        // "No terminal attached to stdout" and still "passed" this test.
+        await process.shouldExit(64);
+        expect(stderr.toLowerCase(), contains('project name'));
+      },
+      timeout: const Timeout(Duration(seconds: 15)),
+    );
+
+    test(
+      '--no-input fails fast with no project name even if it were a real terminal',
+      () async {
+        final process = await runFlow(['create', '--no-input']);
+        final stderr = await process.stderr.rest.join('\n');
+        // 64 exactly, for the same reason as the test above: a wizard crash
+        // exits 70 and would slip past `isNot(0)`.
+        await process.shouldExit(64);
+        expect(stderr.toLowerCase(), contains('project name'));
+      },
+      timeout: const Timeout(Duration(seconds: 15)),
+    );
+  });
 }
