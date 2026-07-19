@@ -143,7 +143,7 @@ class CreateWizard {
 
   List<String> _promptFlavors() {
     final wantsFlavors = _log.confirm(
-      "👉 Set up native Android flavors? (Android-only — iOS schemes aren't generated)",
+      '👉 Set up native flavors? (Android productFlavors + iOS schemes/xcconfigs)',
       defaultValue: false,
     );
     if (!wantsFlavors) return const [];

@@ -2,37 +2,48 @@ import 'package:flow/src/create/services/flavor_service.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('buildProductFlavorsBlock', () {
-    test('adds applicationIdSuffix to every non-production flavor', () {
-      final block = buildProductFlavorsBlock(['dev', 'production']);
+  group('buildNativeFlavorConfig', () {
+    test('feeds the same bundle id to both Android and iOS', () {
+      final config = buildNativeFlavorConfig(
+        flavors: ['dev', 'production'],
+        appName: 'My App',
+        bundleId: 'com.acme.myapp',
+      );
 
-      expect(block, contains('create("dev")'));
-      expect(block, contains('applicationIdSuffix = ".dev"'));
-      expect(block, contains('create("production")'));
-      expect(block, isNot(contains('applicationIdSuffix = ".production"')));
+      expect(config.android.applicationId, 'com.acme.myapp');
+      expect(config.ios.bundleId, 'com.acme.myapp');
     });
 
-    test('suffixes every flavor when none is named production', () {
-      final block = buildProductFlavorsBlock(['staging', 'demo']);
+    test('treats the flavor named "production" as the unsuffixed one', () {
+      final config = buildNativeFlavorConfig(
+        flavors: ['dev', 'production'],
+        appName: 'My App',
+        bundleId: 'com.acme.myapp',
+      );
 
-      expect(block, contains('applicationIdSuffix = ".staging"'));
-      expect(block, contains('applicationIdSuffix = ".demo"'));
+      expect(config.productionFlavor, 'production');
+      expect(config.flavors, ['dev', 'production']);
     });
-  });
 
-  group('applyProductFlavors', () {
-    test('inserts flavorDimensions and productFlavors right after android {', () {
-      const gradle =
-          'plugins {\n    id("com.android.application")\n}\n\nandroid {\n    namespace = "x"\n}\n';
+    test('suffixes every flavor when none is named "production"', () {
+      final config = buildNativeFlavorConfig(
+        flavors: ['staging', 'demo'],
+        appName: 'My App',
+        bundleId: 'com.acme.myapp',
+      );
 
-      final updated = applyProductFlavors(gradle, ['dev', 'production']);
+      expect(config.productionFlavor, isEmpty);
+    });
 
-      expect(updated, contains('flavorDimensions += "flavor"'));
-      expect(updated, contains('productFlavors {'));
-      expect(updated, contains('create("dev")'));
-      expect(updated, contains('create("production")'));
-      // The rest of the original file is preserved.
-      expect(updated, contains('namespace = "x"'));
+    test('carries the app name through for iOS scheme/xcconfig branding', () {
+      final config = buildNativeFlavorConfig(
+        flavors: ['dev'],
+        appName: 'My App',
+        bundleId: 'com.acme.myapp',
+      );
+
+      expect(config.appName, 'My App');
+      expect(config.useSeparateMains, isTrue);
     });
   });
 }
