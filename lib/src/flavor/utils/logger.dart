@@ -118,4 +118,12 @@ class AppLogger {
       defaultValues: defaultValues,
     );
   }
+
+  /// A spinner for a slow operation (cloning, `pub get`, `dart fix`, ...).
+  /// Complete it with `.complete(message)` on success or `.fail(message)` on
+  /// failure — see `package:mason_logger`'s `Progress`.
+  ///
+  /// Gracefully degrades to a single non-animated line when stdout isn't a
+  /// real terminal (CI, piped output), so it's safe to use unconditionally.
+  Progress progress(String message) => _logger.progress(message);
 }

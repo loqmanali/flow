@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:io/io.dart' show ExitCode;
+import 'package:mason_logger/mason_logger.dart' show lightCyan, styleBold;
 import 'package:path/path.dart' as p;
 
 import '../../flavor/utils/logger.dart';
@@ -11,7 +12,10 @@ import '../services/process_service.dart';
 import '../services/rename_service.dart';
 import '../utils/bundle_id.dart';
 import '../utils/display_name.dart';
+import '../utils/flavors.dart';
 import '../utils/name_validation.dart';
+import '../utils/wizard_plan.dart';
+import 'create_wizard.dart';
 
 /// `flow create <name>` — scaffolds a new Flutter project from a template.
 ///
@@ -41,7 +45,14 @@ class CreateCommand extends Command<int> {
       )
       ..addOption('flavors', help: 'Comma-separated native flavors, e.g. dev,production.')
       ..addOption('output', help: 'Parent directory to create the project in. Default: cwd.')
-      ..addFlag('pub-get', help: 'Run `flutter pub get` after scaffolding.', defaultsTo: true);
+      ..addFlag('pub-get', help: 'Run `flutter pub get` after scaffolding.', defaultsTo: true)
+      ..addFlag(
+        'no-input',
+        help:
+            'Never prompt interactively, even on a terminal; fail fast if the '
+            'project name is missing. Always on for scripts/CI.',
+        negatable: false,
+      );
   }
 
   final AppLogger _log;
@@ -73,38 +84,63 @@ class CreateCommand extends Command<int> {
   Future<int> _run() async {
     final results = argResults!;
     final rest = results.rest;
-    if (rest.isEmpty) {
-      usageException('Missing project name. Usage: $invocation');
-    }
     if (rest.length > 1) {
       usageException('Unexpected extra arguments: ${rest.skip(1).join(' ')}. Usage: $invocation');
     }
-    final name = rest.first;
 
-    // 1. Validate everything up front — no filesystem or network access
-    // happens until every check below has passed.
-    final nameError = validateProjectName(name);
-    if (nameError != null) {
-      _log.error(nameError);
-      return ExitCode.usage.code;
+    final String name;
+    final String org;
+    final String bundleId;
+    final String display;
+    final String template;
+    final String ref;
+    final List<String> flavors;
+
+    if (rest.isEmpty) {
+      // No positional name: either walk the interactive wizard, or fail
+      // fast. `--no-input`, and any non-tty stdin (CI, a pipe), must never
+      // block on a prompt that can never be answered.
+      final noInput = results['no-input'] as bool;
+      if (!shouldRunCreateWizard(noInput: noInput, hasTerminal: stdin.hasTerminal)) {
+        usageException('Missing project name. Usage: $invocation');
+      }
+
+      final answers = CreateWizard(logger: _log).run(results);
+      if (answers == null) {
+        return ExitCode.success.code;
+      }
+      name = answers.name;
+      org = answers.org;
+      bundleId = answers.bundleId;
+      display = answers.display;
+      template = answers.template;
+      ref = answers.ref;
+      flavors = answers.flavors;
+    } else {
+      name = rest.first;
+
+      // Validate everything up front — no filesystem or network access
+      // happens until every check below has passed.
+      final nameError = validateProjectName(name);
+      if (nameError != null) {
+        _log.error(nameError);
+        return ExitCode.usage.code;
+      }
+
+      org = results['org'] as String;
+      bundleId = (results['bundle-id'] as String?) ?? deriveBundleId(org: org, name: name);
+      final bundleIdError = validateBundleId(bundleId);
+      if (bundleIdError != null) {
+        _log.error(bundleIdError);
+        return ExitCode.usage.code;
+      }
+
+      display = (results['display'] as String?) ?? defaultDisplayName(name);
+      template = results['template'] as String;
+      ref = results['ref'] as String;
+      flavors = parseFlavors(results['flavors'] as String?);
     }
 
-    final org = results['org'] as String;
-    final bundleId = (results['bundle-id'] as String?) ?? deriveBundleId(org: org, name: name);
-    final bundleIdError = validateBundleId(bundleId);
-    if (bundleIdError != null) {
-      _log.error(bundleIdError);
-      return ExitCode.usage.code;
-    }
-
-    final display = (results['display'] as String?) ?? defaultDisplayName(name);
-    final template = results['template'] as String;
-    final ref = results['ref'] as String;
-    final flavorsRaw = results['flavors'] as String?;
-    final flavors =
-        (flavorsRaw == null || flavorsRaw.trim().isEmpty)
-            ? const <String>[]
-            : flavorsRaw.split(',').map((f) => f.trim()).where((f) => f.isNotEmpty).toList();
     final outputDir = (results['output'] as String?) ?? Directory.current.path;
     final pubGet = results['pub-get'] as bool;
 
@@ -115,8 +151,8 @@ class CreateCommand extends Command<int> {
     }
 
     // 2. Fetch the template.
-    _log.info('Cloning $template ($ref) into $target...');
-    final cloneCode = await runStreamed('git', [
+    final cloneProgress = _log.progress('Cloning $template ($ref)');
+    final cloneResult = await runCaptured('git', [
       'clone',
       '--depth',
       '1',
@@ -125,16 +161,30 @@ class CreateCommand extends Command<int> {
       template,
       target,
     ]);
-    if (cloneCode != 0) {
-      _log.error('git clone failed (exit $cloneCode). See the error above.');
-      return cloneCode;
+    if (cloneResult.exitCode != 0) {
+      cloneProgress.fail('git clone failed (exit ${cloneResult.exitCode})');
+      _log.error(cloneResult.output.isEmpty ? 'No output captured.' : cloneResult.output);
+      return cloneResult.exitCode;
     }
+    cloneProgress.complete('Cloned $template ($ref)');
 
     // 3. Detach history.
     _detachHistory(target);
 
     // 4. Rewrite identity.
-    _rewriteIdentity(target: target, name: name, display: display, bundleId: bundleId);
+    final rewriteProgress = _log.progress('Rewriting project identity');
+    final rewriteReport = _rewriteIdentity(
+      target: target,
+      name: name,
+      display: display,
+      bundleId: bundleId,
+    );
+    rewriteProgress.complete(
+      'Rewrote project identity (${rewriteReport.filesTouched} file(s) touched)',
+    );
+    for (final warning in rewriteReport.warnings) {
+      _log.warn(warning);
+    }
 
     // 5. flutter pub get + dart fix.
     if (pubGet) {
@@ -150,7 +200,7 @@ class CreateCommand extends Command<int> {
 
     // 7. Final output.
     _printNextSteps(target: target, name: name, pubGetRan: pubGet);
-    _log.success('Created $name at $target.');
+    _log.success('Created ${styleBold.wrap(name)} at $target.');
     return ExitCode.success.code;
   }
 
@@ -165,75 +215,98 @@ class CreateCommand extends Command<int> {
     }
   }
 
-  void _rewriteIdentity({
+  /// What [_rewriteIdentity] did, so the caller can log one summary line
+  /// after the progress spinner completes instead of interleaving log
+  /// lines mid-spinner.
+  _RewriteReport _rewriteIdentity({
     required String target,
     required String name,
     required String display,
     required String bundleId,
   }) {
+    final warnings = <String>[];
+    var filesTouched = 0;
+
     final pubspecFile = File(p.join(target, 'pubspec.yaml'));
     if (!pubspecFile.existsSync()) {
-      _log.warn('pubspec.yaml not found at $target. Rename the package by hand.');
+      warnings.add('pubspec.yaml not found at $target. Rename the package by hand.');
     } else {
       final oldName = readPubspecName(pubspecFile.readAsStringSync());
       if (oldName == null) {
-        _log.warn('Could not read "name:" from pubspec.yaml. Rename package: imports by hand.');
+        warnings.add('Could not read "name:" from pubspec.yaml. Rename package: imports by hand.');
       } else {
-        final touched = _sweepPackageReferences(target: target, from: oldName, to: name);
-        _log.info('Rewrote package references ($oldName -> $name) in $touched file(s).');
+        filesTouched += _sweepPackageReferences(target: target, from: oldName, to: name);
       }
     }
 
-    _rewriteFile(
+    if (_rewriteFile(
       file: File(p.join(target, 'android/app/src/main/AndroidManifest.xml')),
       rewrite: (content) => rewriteAndroidLabel(content, display),
       manualFixKey: 'android:label',
       manualFixValue: display,
-    );
+      warnings: warnings,
+    )) {
+      filesTouched++;
+    }
 
-    _rewriteFile(
+    if (_rewriteFile(
       file: File(p.join(target, 'ios/Runner/Info.plist')),
       rewrite: (content) => rewriteIosDisplayName(content, display),
       manualFixKey: 'CFBundleDisplayName/CFBundleName',
       manualFixValue: display,
-    );
+      warnings: warnings,
+    )) {
+      filesTouched++;
+    }
 
-    _rewriteFile(
+    if (_rewriteFile(
       file: File(p.join(target, 'android/app/build.gradle.kts')),
       rewrite: (content) => rewriteAndroidApplicationId(content, bundleId),
       manualFixKey: 'applicationId',
       manualFixValue: bundleId,
-    );
+      warnings: warnings,
+    )) {
+      filesTouched++;
+    }
 
-    _rewriteFile(
+    if (_rewriteFile(
       file: File(p.join(target, 'ios/Runner.xcodeproj/project.pbxproj')),
       rewrite: (content) => rewriteIosBundleId(content, bundleId),
       manualFixKey: 'PRODUCT_BUNDLE_IDENTIFIER',
       manualFixValue: bundleId,
-    );
+      warnings: warnings,
+    )) {
+      filesTouched++;
+    }
+
+    return _RewriteReport(filesTouched: filesTouched, warnings: warnings);
   }
 
-  /// Applies [rewrite] to [file] if it exists, warning with the manual fix
-  /// ([manualFixKey] -> [manualFixValue]) whenever the file is missing or
-  /// the expected key inside it isn't found.
-  void _rewriteFile({
+  /// Applies [rewrite] to [file] if it exists, appending a manual-fix
+  /// warning ([manualFixKey] -> [manualFixValue]) to [warnings] whenever the
+  /// file is missing or the expected key inside it isn't found. Returns
+  /// whether the file was actually rewritten, so the caller can report an
+  /// accurate touched-file count.
+  bool _rewriteFile({
     required File file,
     required String? Function(String content) rewrite,
     required String manualFixKey,
     required String manualFixValue,
+    required List<String> warnings,
   }) {
     if (!file.existsSync()) {
-      _log.warn('${file.path} not found. Set $manualFixKey to "$manualFixValue" by hand.');
-      return;
+      warnings.add('${file.path} not found. Set $manualFixKey to "$manualFixValue" by hand.');
+      return false;
     }
     final updated = rewrite(file.readAsStringSync());
     if (updated == null) {
-      _log.warn(
+      warnings.add(
         'Could not find $manualFixKey in ${file.path}. Set it to "$manualFixValue" by hand.',
       );
-      return;
+      return false;
     }
     file.writeAsStringSync(updated);
+    return true;
   }
 
   int _sweepPackageReferences({required String target, required String from, required String to}) {
@@ -252,25 +325,31 @@ class CreateCommand extends Command<int> {
   }
 
   Future<void> _runPubGetAndFix(String target) async {
-    _log.info('Running flutter pub get...');
-    final pubGetCode = await runStreamed('flutter', ['pub', 'get'], workingDirectory: target);
-    if (pubGetCode != 0) {
-      _log.error(
-        'flutter pub get failed (exit $pubGetCode). Run it yourself: cd $target && flutter pub get',
-      );
+    final pubGetProgress = _log.progress('Running flutter pub get');
+    final pubGetResult = await runCaptured('flutter', ['pub', 'get'], workingDirectory: target);
+    if (pubGetResult.exitCode != 0) {
+      pubGetProgress.fail('flutter pub get failed (exit ${pubGetResult.exitCode})');
+      _log.error(pubGetResult.output.isEmpty ? 'No output captured.' : pubGetResult.output);
+      _log.error('Run it yourself: cd $target && flutter pub get');
       return;
     }
-    final fixCode = await runStreamed('dart', [
+    pubGetProgress.complete('flutter pub get done');
+
+    final fixProgress = _log.progress('Running dart fix --apply');
+    final fixResult = await runCaptured('dart', [
       'fix',
       '--apply',
       '--code=directives_ordering',
     ], workingDirectory: target);
-    if (fixCode != 0) {
+    if (fixResult.exitCode != 0) {
+      fixProgress.fail('dart fix failed (exit ${fixResult.exitCode})');
+      _log.error(fixResult.output.isEmpty ? 'No output captured.' : fixResult.output);
       _log.error(
-        'dart fix --apply --code=directives_ordering failed (exit $fixCode). '
-        'Run it yourself once pub get succeeds.',
+        'Run it yourself once pub get succeeds: dart fix --apply --code=directives_ordering',
       );
+      return;
     }
+    fixProgress.complete('dart fix applied');
   }
 
   void _applyFlavors({required String target, required List<String> flavors}) {
@@ -306,18 +385,36 @@ class CreateCommand extends Command<int> {
     }
 
     _log.info('');
-    _log.info('Created at: $target');
-    _log.info('Next:');
-    _log.info('  cd $name');
+    _log.info('${styleBold.wrap('Next steps')}');
+    _log.info('  ${lightCyan.wrap('cd $name')}');
     if (!pubGetRan) {
-      _log.info('  flutter pub get');
+      _log.info('  ${lightCyan.wrap('flutter pub get')}');
     }
     if (flavorEntrypoints.isEmpty) {
-      _log.info('  flutter run');
+      _log.info('  ${lightCyan.wrap('flutter run')}');
     } else {
       for (final flavor in flavorEntrypoints) {
-        _log.info('  flutter run -t lib/main_$flavor.dart --dart-define-from-file=.env.$flavor');
+        final example = File(p.join(target, '.env.$flavor.example'));
+        final envFile = File(p.join(target, '.env.$flavor'));
+        if (example.existsSync() && !envFile.existsSync()) {
+          _log.info('  ${lightCyan.wrap('cp .env.$flavor.example .env.$flavor')}');
+        }
+        _log.info(
+          '  ${lightCyan.wrap('flutter run -t lib/main_$flavor.dart --dart-define-from-file=.env.$flavor')}',
+        );
       }
+      _log.info('');
+      _log.info(
+        '💡 Plain `flutter run` exits 64 by design — always pick a flavored entrypoint above.',
+      );
     }
   }
+}
+
+/// What [CreateCommand._rewriteIdentity] did to the freshly cloned template.
+class _RewriteReport {
+  const _RewriteReport({required this.filesTouched, required this.warnings});
+
+  final int filesTouched;
+  final List<String> warnings;
 }

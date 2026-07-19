@@ -1,23 +1,32 @@
 import 'dart:io';
 
-/// Runs [executable] with [arguments], streaming stdout/stderr live to the
-/// terminal, and returns the exit code once the process finishes.
+/// The exit code and combined stdout+stderr of a subprocess run via
+/// [runCaptured].
+class CapturedProcess {
+  const CapturedProcess(this.exitCode, this.output);
+
+  final int exitCode;
+  final String output;
+}
+
+/// Runs [executable] with [arguments] to completion, capturing its combined
+/// stdout/stderr instead of streaming it live.
 ///
 /// Used for `git clone`, `flutter pub get`, and `dart fix` — all long-running
-/// enough that buffering their full output until completion would leave the
-/// user staring at a blank terminal.
-Future<int> runStreamed(
+/// enough to hide behind a spinner (see `AppLogger.progress`). The caller
+/// only needs [CapturedProcess.output] to report the real error when
+/// [CapturedProcess.exitCode] is non-zero; on success the captured output is
+/// simply discarded in favor of a short spinner completion line.
+Future<CapturedProcess> runCaptured(
   String executable,
   List<String> arguments, {
   String? workingDirectory,
 }) async {
-  final process = await Process.start(
+  final result = await Process.run(
     executable,
     arguments,
     workingDirectory: workingDirectory,
     runInShell: true,
   );
-  process.stdout.listen(stdout.add);
-  process.stderr.listen(stderr.add);
-  return process.exitCode;
+  return CapturedProcess(result.exitCode, '${result.stdout}${result.stderr}'.trim());
 }
